@@ -1,0 +1,14 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/drand-client",
+    "crates/tlock-core",
+    "crates/capsule-server",
+]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+
+[profile.dev]
+opt-level = 1

@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Time-Locked Message Capsule</title>
+<style>
+  :root{--bg:#0f1220;--panel:#171b2e;--border:#2a2f4a;--text:#e7e9f5;--muted:#9aa0c0;--accent:#7c9cff;--ok:#6fe3a1}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);line-height:1.5}
+  main{max-width:760px;margin:0 auto;padding:28px 20px 80px}
+  h1{font-size:1.5rem;margin:0 0 4px}
+  .subtitle{color:var(--muted);margin:0 0 20px;font-size:.92rem}
+  nav{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap}
+  nav button{flex:1;min-width:150px;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--muted);cursor:pointer;font-size:.9rem}
+  nav button.active{border-color:var(--accent);color:var(--text);background:#14183a}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:22px}
+  .panel h2{margin:0 0 4px;font-size:1.05rem}
+  .hint{color:var(--muted);font-size:.85rem;margin:0 0 6px}
+  label{display:block;font-size:.85rem;color:var(--muted);margin:14px 0 6px}
+  input,textarea,select{width:100%;background:#0d1022;border:1px solid var(--border);border-radius:8px;color:var(--text);padding:10px 12px;font-size:.95rem;font-family:inherit}
+  textarea{min-height:90px;resize:vertical}
+  .row{display:flex;gap:12px}.row>*{flex:1}
+  .toggle{display:flex;gap:8px;margin-bottom:6px}
+  .toggle button{flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:#0d1022;color:var(--muted);cursor:pointer;font-size:.85rem}
+  .toggle button.active{border-color:var(--accent);color:var(--text);background:#14183a}
+  .warning{background:#3a2410;border:1px solid #7a4a12;color:#ffcf8a;border-radius:8px;padding:12px 14px;font-size:.88rem;margin:16px 0}
+  button.primary{background:var(--accent);color:#0d1022;border:none;border-radius:8px;padding:11px 16px;font-weight:600;font-size:.95rem;cursor:pointer;margin-top:16px}
+  button.primary:disabled{opacity:.5;cursor:default}
+  button.secondary{background:transparent;color:var(--accent);border:1px solid var(--border);border-radius:8px;padding:9px 14px;font-size:.9rem;cursor:pointer}
+  .result{margin-top:16px;padding:14px;border-radius:8px;background:#0d1022;border:1px solid var(--border);font-size:.9rem;word-break:break-word}
+  .result a{color:var(--accent)}
+  .badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:.78rem;font-weight:600}
+  .s-locked,.s-sealed,.s-armed{background:#3a2f10;color:#ffcf8a}
+  .s-pending-decryption,.s-revealing,.s-pending-trigger{background:#302a10;color:#e0d27a}
+  .s-unlocked,.s-revealed{background:#123a26;color:var(--ok)}
+  .s-triggered,.s-failed{background:#3a1616;color:#ff9a9a}
+  .countdown{font-size:1.7rem;font-weight:700;margin:10px 0}
+  .muted{color:var(--muted);font-size:.85rem}
+  .error{color:#ff8a8a;font-size:.88rem;margin-top:10px;word-break:break-word}
+  .msg{background:#0d1022;border:1px solid var(--border);border-radius:8px;padding:14px;white-space:pre-wrap;word-break:break-word;margin-top:12px}
+  code,.mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.8rem;word-break:break-all}
+  ul.list{list-style:none;padding:0;margin:0}
+  ul.list li{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--border);font-size:.88rem}
+  ul.list li:last-child{border-bottom:none}
+  ul.list a{color:var(--text);text-decoration:none}ul.list a:hover{color:var(--accent)}
+  .hidden{display:none}
+</style>
+</head>
+<body>
+<main>
+  <h1>⏳ Time-Locked Message Capsule</h1>
+  <p class="subtitle">tlock timelock encryption over the drand beacon. Nobody — including this server — holds a key that opens a capsule early.</p>
+
+  <nav>
+    <button id="nav-capsule" class="active">Capsules</button>
+    <button id="nav-auction">Sealed-bid auction</button>
+    <button id="nav-switch">Dead man's switch</button>
+  </nav>
+
+  <!-- ================= CAPSULES ================= -->
+  <div id="view-capsule">
+    <section class="panel">
+      <h2>Create a capsule</h2>
+      <label>Label (optional, stored unencrypted)</label>
+      <input type="text" id="c-label" maxlength="200" placeholder="e.g. Open on our anniversary" />
+
+      <label>Content</label>
+      <div class="toggle"><button type="button" id="c-tab-text" class="active">Text message</button><button type="button" id="c-tab-file">File</button></div>
+      <div id="c-text-wrap"><textarea id="c-message" placeholder="Write the message to be sealed..."></textarea></div>
+      <div id="c-file-wrap" class="hidden"><input type="file" id="c-file" /><p class="muted" id="c-file-name"></p></div>
+
+      <label>Unlock time</label>
+      <div class="row">
+        <select id="c-unit">
+          <option value="minutes">Minutes from now</option>
+          <option value="hours" selected>Hours from now</option>
+          <option value="days">Days from now</option>
+          <option value="years">Years from now</option>
+          <option value="exact">Exact date &amp; time</option>
+        </select>
+        <input type="number" id="c-amount" value="24" min="1" step="any" />
+      </div>
+      <input type="datetime-local" id="c-exact" class="hidden" style="margin-top:10px" />
+
+      <label>Recipients (optional, comma-separated names/emails)</label>
+      <input type="text" id="c-recipients" placeholder="alice@example.com, Bob" />
+      <label>Webhook URL (optional — notified automatically when the capsule unlocks)</label>
+      <input type="text" id="c-webhook" placeholder="https://hooks.example.com/..." />
+      <p class="hint">Works with any service that accepts a webhook (Slack/Discord/Teams incoming webhooks, Zapier, Make, IFTTT → email/SMS). The notification contains a link, never the message itself. Recipients are labels only — anyone with the link can read the capsule once it unlocks.</p>
+
+      <div class="warning">⚠️ <strong>Irreversible.</strong> Once sealed, nobody — including you and this server's admin — can open the capsule until the chosen drand round is published. No cancel, no edit, no early unlock.</div>
+      <button class="primary" id="c-create">Seal capsule</button>
+      <div id="c-result"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Check a capsule</h2>
+      <div class="row"><input type="text" id="c-check-id" placeholder="capsule ID" /><button class="secondary" id="c-check" style="max-width:130px">Check</button></div>
+      <div id="c-check-result"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Capsules created in this browser</h2>
+      <ul class="list" id="c-mine"></ul>
+    </section>
+  </div>
+
+  <!-- ================= AUCTION ================= -->
+  <div id="view-auction" class="hidden">
+    <section class="panel">
+      <h2>Open a sealed-bid auction</h2>
+      <p class="hint">All bids are encrypted to the same future drand round. Nobody can read any bid early, and all bids open at the same instant.</p>
+      <label>Auction title</label>
+      <input type="text" id="a-label" maxlength="200" placeholder="e.g. Used laptop" />
+      <label>Reveal after</label>
+      <div class="row">
+        <select id="a-unit"><option value="minutes" selected>Minutes</option><option value="hours">Hours</option><option value="days">Days</option></select>
+        <input type="number" id="a-amount" value="2" min="1" step="any" />
+      </div>
+      <button class="primary" id="a-create">Create auction</button>
+      <div id="a-create-result"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Place a sealed bid</h2>
+      <label>Auction ID</label><input type="text" id="a-bid-id" placeholder="auction ID" />
+      <div class="row">
+        <div><label>Your name</label><input type="text" id="a-bidder" maxlength="100" /></div>
+        <div><label>Bid (a number, or any text)</label><input type="text" id="a-bid" maxlength="2000" /></div>
+      </div>
+      <button class="primary" id="a-place">Seal my bid</button>
+      <div id="a-bid-result"></div>
+    </section>
+
+    <section class="panel">
+      <h2>View an auction</h2>
+      <div class="row"><input type="text" id="a-view-id" placeholder="auction ID" /><button class="secondary" id="a-view" style="max-width:130px">View</button></div>
+      <div id="a-view-result"></div>
+    </section>
+  </div>
+
+  <!-- ================= SWITCH ================= -->
+  <div id="view-switch" class="hidden">
+    <section class="panel">
+      <h2>Arm a dead man's switch</h2>
+      <p class="hint">Your message stays hidden while you keep checking in. If you stop, the drand beacon releases it automatically.</p>
+      <label>Label (optional)</label><input type="text" id="s-label" maxlength="200" />
+      <label>Message to release</label><textarea id="s-message"></textarea>
+      <label>I will check in at least every</label>
+      <div class="row">
+        <select id="s-unit"><option value="minutes">Minutes</option><option value="hours">Hours</option><option value="days" selected>Days</option></select>
+        <input type="number" id="s-amount" value="7" min="1" step="any" />
+      </div>
+      <label>Webhook URL (optional — notified when it fires)</label><input type="text" id="s-webhook" />
+      <div class="warning">⚠️ Unlike a plain capsule, the server must keep your plaintext in memory while the switch is armed (it has to re-encrypt on every check-in). Don't use this for anything you wouldn't trust this server with. You'll get a <strong>check-in token once</strong> — if you lose it, the switch will fire.</div>
+      <button class="primary" id="s-create">Arm switch</button>
+      <div id="s-create-result"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Check in / view status</h2>
+      <label>Switch ID</label><input type="text" id="s-id" />
+      <label>Check-in token</label><input type="text" id="s-token" />
+      <div class="row" style="margin-top:12px"><button class="primary" id="s-checkin" style="margin-top:0">Check in (reset the timer)</button><button class="secondary" id="s-view">View status</button></div>
+      <div id="s-result"></div>
+    </section>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const SEC = {minutes:60, hours:3600, days:86400, years:365.25*86400};
+
+async function api(path, method='GET', body) {
+  const r = await fetch(path, {method, headers: body ? {'Content-Type':'application/json'} : {}, body: body ? JSON.stringify(body) : undefined});
+  const text = await r.text();
+  let data; try { data = JSON.parse(text); } catch { data = text; }
+  if (!r.ok) throw new Error(typeof data === 'string' ? data : JSON.stringify(data));
+  return data;
+}
+function ls(key, val) { // tiny localStorage helper; storage can be unavailable
+  try { if (val === undefined) return JSON.parse(localStorage.getItem(key) || '[]'); localStorage.setItem(key, JSON.stringify(val)); } catch { return []; }
+}
+function fmt(seconds) {
+  if (seconds == null) return '';
+  seconds = Math.max(0, Math.floor(seconds));
+  const d = Math.floor(seconds/86400), h = Math.floor(seconds%86400/3600), m = Math.floor(seconds%3600/60), s = seconds%60;
+  return d>0 ? `${d}d ${h}h ${m}m` : h>0 ? `${h}h ${m}m ${s}s` : `${m}m ${s}s`;
+}
+const badge = (st) => `<span class="badge s-${esc(st)}">${esc(st)}</span>`;
+const when = (iso) => new Date(iso).toLocaleString();
+const err = (e) => `<div class="error">${esc(e.message || e)}</div>`;
+function fileToBase64(file) {
+  return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result.split(',')[1]); r.onerror = rej; r.readAsDataURL(file); });
+}
+
+/* ---------- navigation ---------- */
+function show(which) {
+  for (const v of ['capsule','auction','switch']) {
+    $('view-'+v).classList.toggle('hidden', v !== which);
+    $('nav-'+v).classList.toggle('active', v === which);
+  }
+}
+['capsule','auction','switch'].forEach(v => $('nav-'+v).onclick = () => show(v));
+
+/* ---------- capsules ---------- */
+$('c-tab-text').onclick = () => cTab('text'); $('c-tab-file').onclick = () => cTab('file');
+function cTab(w) {
+  $('c-tab-text').classList.toggle('active', w==='text'); $('c-tab-file').classList.toggle('active', w==='file');
+  $('c-text-wrap').classList.toggle('hidden', w!=='text'); $('c-file-wrap').classList.toggle('hidden', w!=='file');
+}
+$('c-file').onchange = () => { const f = $('c-file').files[0]; $('c-file-name').textContent = f ? `${f.name} (${(f.size/1024).toFixed(1)} KB)` : ''; };
+$('c-unit').onchange = () => { const ex = $('c-unit').value === 'exact'; $('c-amount').classList.toggle('hidden', ex); $('c-exact').classList.toggle('hidden', !ex); };
+
+$('c-create').onclick = async () => {
+  const btn = $('c-create'), box = $('c-result'); box.innerHTML = ''; btn.disabled = true;
+  try {
+    const body = { label: $('c-label').value || null };
+    if ($('c-unit').value === 'exact') {
+      if (!$('c-exact').value) throw new Error('Pick an exact unlock date and time.');
+      body.unlock_at = new Date($('c-exact').value).toISOString();
+    } else {
+      const n = parseFloat($('c-amount').value);
+      if (!(n > 0)) throw new Error('Enter a positive duration.');
+      body.unlock_in_seconds = Math.round(n * SEC[$('c-unit').value]);
+    }
+    if ($('c-tab-file').classList.contains('active')) {
+      const f = $('c-file').files[0]; if (!f) throw new Error('Choose a file first.');
+      body.file_name = f.name; body.file_base64 = await fileToBase64(f);
+    } else {
+      if (!$('c-message').value.trim()) throw new Error('Write a message first.');
+      body.message = $('c-message').value;
+    }
+    const rec = $('c-recipients').value.split(',').map(s => s.trim()).filter(Boolean);
+    if (rec.length) body.recipients = rec;
+    if ($('c-webhook').value.trim()) body.webhook_url = $('c-webhook').value.trim();
+
+    const d = await api('/api/capsules', 'POST', body);
+    const link = `${location.origin}${location.pathname}?id=${d.id}`;
+    box.innerHTML = `<div class="result">✅ Sealed. Unlocks at <strong>${esc(when(d.unlock_time))}</strong> (drand round ${d.round}).<br/>Shareable link: <a href="${esc(link)}">${esc(link)}</a></div>`;
+    const mine = ls('tl.capsules'); mine.unshift({id:d.id, label: body.label || '', unlock: d.unlock_time}); ls('tl.capsules', mine.slice(0,50));
+    $('c-check-id').value = d.id; renderMine();
+  } catch (e) { box.innerHTML = err(e); } finally { btn.disabled = false; }
+};
+
+let cTimer = null;
+async function checkCapsule(id) {
+  clearTimeout(cTimer);
+  const box = $('c-check-result'); if (!id) { box.innerHTML = ''; return; }
+  try {
+    const d = await api(`/api/capsules/${encodeURIComponent(id)}`);
+    let body = '';
+    if (d.status === 'unlocked') {
+      body = d.content_type === 'text'
+        ? `<div class="msg">${esc(d.message)}</div>`
+        : `<p style="margin-top:12px">📎 <a href="data:application/octet-stream;base64,${esc(d.file_base64)}" download="${esc(d.file_name)}">${esc(d.file_name)}</a></p>`;
+    } else if (d.status === 'pending-decryption') {
+      body = `<p class="muted">Round reached — the decryption service is fetching and verifying the beacon value…</p>`;
+    } else if (d.status === 'failed') {
+      body = `<p class="error">Decryption failed permanently (ciphertext integrity check).</p>`;
+    } else { body = `<div class="countdown">${esc(fmt(d.seconds_remaining))}</div>`; }
+    box.innerHTML = `<div class="result">${d.label ? `<strong>${esc(d.label)}</strong><br/>` : ''}${badge(d.status)} &nbsp;unlocks ${esc(when(d.unlock_time))} (round ${d.round})
+      ${d.recipients.length ? `<div class="muted">For: ${esc(d.recipients.join(', '))}</div>` : ''}
+      ${d.error ? `<div class="error">${esc(d.error)}</div>` : ''}${body}</div>`;
+    if (d.status !== 'unlocked' && d.status !== 'failed') cTimer = setTimeout(() => checkCapsule(id), 3000);
+  } catch (e) { box.innerHTML = err(e); }
+}
+$('c-check').onclick = () => checkCapsule($('c-check-id').value.trim());
+function renderMine() {
+  const mine = ls('tl.capsules');
+  $('c-mine').innerHTML = mine.length ? mine.map(c => `<li><a href="?id=${esc(c.id)}">${esc(c.label || c.id.slice(0,8))}</a><span class="muted">${esc(when(c.unlock))}</span></li>`).join('')
+    : '<li class="muted">None yet.</li>';
+}
+
+/* ---------- auction ---------- */
+$('a-create').onclick = async () => {
+  const box = $('a-create-result'); box.innerHTML = '';
+  try {
+    const n = parseFloat($('a-amount').value); if (!(n > 0)) throw new Error('Enter a positive duration.');
+    const d = await api('/api/auctions', 'POST', { label: $('a-label').value || null, reveal_in_seconds: Math.round(n * SEC[$('a-unit').value]) });
+    const link = `${location.origin}${location.pathname}?auction=${d.id}`;
+    box.innerHTML = `<div class="result">✅ Auction open. Bids reveal at <strong>${esc(when(d.reveal_time))}</strong> (round ${d.round}).<br/>Auction ID: <code>${esc(d.id)}</code><br/>Share: <a href="${esc(link)}">${esc(link)}</a></div>`;
+    $('a-bid-id').value = d.id; $('a-view-id').value = d.id;
+  } catch (e) { box.innerHTML = err(e); }
+};
+$('a-place').onclick = async () => {
+  const box = $('a-bid-result'); box.innerHTML = '';
+  try {
+    const id = $('a-bid-id').value.trim(); if (!id) throw new Error('Enter the auction ID.');
+    const d = await api(`/api/auctions/${encodeURIComponent(id)}/bids`, 'POST', { bidder: $('a-bidder').value, bid: $('a-bid').value });
+    box.innerHTML = `<div class="result">✅ Bid sealed (#${d.index}). Keep this receipt — it commits to your encrypted bid:<br/><code>${esc(d.commitment)}</code></div>`;
+    $('a-bid').value = '';
+  } catch (e) { box.innerHTML = err(e); }
+};
+let aTimer = null;
+async function viewAuction(id) {
+  clearTimeout(aTimer);
+  const box = $('a-view-result'); if (!id) { box.innerHTML = ''; return; }
+  try {
+    const d = await api(`/api/auctions/${encodeURIComponent(id)}`);
+    let body = '';
+    if (d.status === 'sealed') body = `<div class="countdown">${esc(fmt(d.seconds_remaining))}</div><p class="muted">${d.bid_count} sealed bid(s). Contents are unreadable until the reveal round.</p>`;
+    else {
+      body = `<p class="muted">${d.revealed_bids.length} revealed${d.pending_count ? `, ${d.pending_count} still decrypting…` : ''}</p>
+        <ul class="list">${d.revealed_bids.map(b => `<li><span>${esc(b.bidder)}</span><strong>${esc(b.bid)}</strong></li>`).join('')}</ul>
+        ${d.highest ? `<p>🏆 Highest bid: <strong>${esc(d.highest.bidder)}</strong> — ${esc(d.highest.bid)}</p>` : ''}`;
+    }
+    const commits = d.commitments.length ? `<details style="margin-top:12px"><summary class="muted">Public commitments (${d.commitments.length})</summary>${d.commitments.map(c => `<div class="mono">#${c.index} ${esc(c.commitment)}</div>`).join('')}</details>` : '';
+    box.innerHTML = `<div class="result">${d.label ? `<strong>${esc(d.label)}</strong><br/>` : ''}${badge(d.status)} &nbsp;reveal ${esc(when(d.reveal_time))} (round ${d.round})${body}${commits}</div>`;
+    if (d.status !== 'revealed') aTimer = setTimeout(() => viewAuction(id), 3000);
+  } catch (e) { box.innerHTML = err(e); }
+};
+$('a-view').onclick = () => viewAuction($('a-view-id').value.trim());
+
+/* ---------- dead man's switch ---------- */
+$('s-create').onclick = async () => {
+  const box = $('s-create-result'); box.innerHTML = '';
+  try {
+    const n = parseFloat($('s-amount').value); if (!(n > 0)) throw new Error('Enter a positive interval.');
+    if (!$('s-message').value.trim()) throw new Error('Write the message to release.');
+    const body = { label: $('s-label').value || null, message: $('s-message').value, checkin_interval_seconds: Math.round(n * SEC[$('s-unit').value]) };
+    if ($('s-webhook').value.trim()) body.webhook_url = $('s-webhook').value.trim();
+    const d = await api('/api/switches', 'POST', body);
+    const saved = ls('tl.switches'); saved.unshift({id:d.id, token:d.manage_token, label: body.label || ''}); ls('tl.switches', saved.slice(0,20));
+    box.innerHTML = `<div class="result">✅ Armed. Fires at <strong>${esc(when(d.deadline))}</strong> unless you check in first.<br/>
+      Switch ID: <code>${esc(d.id)}</code><br/>Check-in token (shown once, also saved in this browser): <code>${esc(d.manage_token)}</code></div>`;
+    $('s-id').value = d.id; $('s-token').value = d.manage_token;
+  } catch (e) { box.innerHTML = err(e); }
+};
+let sTimer = null;
+async function viewSwitch(id) {
+  clearTimeout(sTimer);
+  const box = $('s-result'); if (!id) { box.innerHTML = ''; return; }
+  try {
+    const d = await api(`/api/switches/${encodeURIComponent(id)}`);
+    let body = '';
+    if (d.status === 'triggered') body = d.content_type === 'text' ? `<div class="msg">${esc(d.message)}</div>` : '<p class="muted">Released (file).</p>';
+    else if (d.status === 'pending-trigger') body = `<p class="muted">Deadline passed — waiting for the beacon value to release it…</p>`;
+    else body = `<div class="countdown">${esc(fmt(d.seconds_remaining))}</div><p class="muted">until it fires unless you check in. Check-ins so far: ${d.checkins}</p>`;
+    $('s-result').innerHTML = `<div class="result">${d.label ? `<strong>${esc(d.label)}</strong><br/>` : ''}${badge(d.status)} &nbsp;deadline ${esc(when(d.deadline))}${d.error ? `<div class="error">${esc(d.error)}</div>` : ''}${body}</div>`;
+    if (d.status !== 'triggered') sTimer = setTimeout(() => viewSwitch(id), 3000);
+  } catch (e) { box.innerHTML = err(e); }
+}
+$('s-view').onclick = () => viewSwitch($('s-id').value.trim());
+$('s-checkin').onclick = async () => {
+  try {
+    const d = await api(`/api/switches/${encodeURIComponent($('s-id').value.trim())}/checkin`, 'POST', { token: $('s-token').value.trim() });
+    await viewSwitch($('s-id').value.trim());
+    $('s-result').insertAdjacentHTML('afterbegin', `<div class="result">✅ Checked in. New deadline: <strong>${esc(when(d.deadline))}</strong></div>`);
+  } catch (e) { $('s-result').innerHTML = err(e); }
+};
+
+/* ---------- init / deep links ---------- */
+(function init() {
+  const p = new URLSearchParams(location.search);
+  renderMine();
+  if (p.get('id')) { show('capsule'); $('c-check-id').value = p.get('id'); checkCapsule(p.get('id')); }
+  else if (p.get('auction')) { show('auction'); $('a-view-id').value = $('a-bid-id').value = p.get('auction'); viewAuction(p.get('auction')); }
+  else if (p.get('switch')) { show('switch'); $('s-id').value = p.get('switch'); viewSwitch(p.get('switch')); }
+  else {
+    const sw = ls('tl.switches'); if (sw.length) { $('s-id').value = sw[0].id; $('s-token').value = sw[0].token; }
+  }
+})();
+</script>
+</body>
+</html>
